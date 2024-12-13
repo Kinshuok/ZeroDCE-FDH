@@ -31,10 +31,10 @@ class L_spa(nn.Module):
     def __init__(self):
         super(L_spa, self).__init__()
         # print(1)kernel = torch.FloatTensor(kernel).unsqueeze(0).unsqueeze(0)
-        kernel_left = torch.FloatTensor( [[0,0,0],[-1,1,0],[0,0,0]]).cuda().unsqueeze(0).unsqueeze(0)
-        kernel_right = torch.FloatTensor( [[0,0,0],[0,1,-1],[0,0,0]]).cuda().unsqueeze(0).unsqueeze(0)
-        kernel_up = torch.FloatTensor( [[0,-1,0],[0,1, 0 ],[0,0,0]]).cuda().unsqueeze(0).unsqueeze(0)
-        kernel_down = torch.FloatTensor( [[0,0,0],[0,1, 0],[0,-1,0]]).cuda().unsqueeze(0).unsqueeze(0)
+        kernel_left = torch.FloatTensor( [[0,0,0],[-1,1,0],[0,0,0]]).to('cpu').unsqueeze(0).unsqueeze(0)
+        kernel_right = torch.FloatTensor( [[0,0,0],[0,1,-1],[0,0,0]]).to('cpu').unsqueeze(0).unsqueeze(0)
+        kernel_up = torch.FloatTensor( [[0,-1,0],[0,1, 0 ],[0,0,0]]).to('cpu').unsqueeze(0).unsqueeze(0)
+        kernel_down = torch.FloatTensor( [[0,0,0],[0,1, 0],[0,-1,0]]).to('cpu').unsqueeze(0).unsqueeze(0)
         self.weight_left = nn.Parameter(data=kernel_left, requires_grad=False)
         self.weight_right = nn.Parameter(data=kernel_right, requires_grad=False)
         self.weight_up = nn.Parameter(data=kernel_up, requires_grad=False)
@@ -49,8 +49,8 @@ class L_spa(nn.Module):
         org_pool =  self.pool(org_mean)			
         enhance_pool = self.pool(enhance_mean)	
 
-        weight_diff =torch.max(torch.FloatTensor([1]).cuda() + 10000*torch.min(org_pool - torch.FloatTensor([0.3]).cuda(),torch.FloatTensor([0]).cuda()),torch.FloatTensor([0.5]).cuda())
-        E_1 = torch.mul(torch.sign(enhance_pool - torch.FloatTensor([0.5]).cuda()) ,enhance_pool-org_pool)
+        weight_diff =torch.max(torch.FloatTensor([1]).to('cpu') + 10000*torch.min(org_pool - torch.FloatTensor([0.3]).to('cpu'),torch.FloatTensor([0]).to('cpu')),torch.FloatTensor([0.5]).to('cpu'))
+        E_1 = torch.mul(torch.sign(enhance_pool - torch.FloatTensor([0.5]).to('cpu')) ,enhance_pool-org_pool)
 
 
         D_org_letf = F.conv2d(org_pool , self.weight_left, padding=1)
@@ -84,7 +84,7 @@ class L_exp(nn.Module):
         x = torch.mean(x,1,keepdim=True)
         mean = self.pool(x)
 
-        d = torch.mean(torch.pow(mean- torch.FloatTensor([self.mean_val] ).cuda(),2))
+        d = torch.mean(torch.pow(mean- torch.FloatTensor([self.mean_val] ).to('cpu'),2))
         return d
         
 class L_TV(nn.Module):
@@ -155,3 +155,53 @@ class perception_loss(nn.Module):
         h_relu_4_3 = h
         # out = (h_relu_1_2, h_relu_2_2, h_relu_3_3, h_relu_4_3)
         return h_relu_4_3
+
+class FDHLoss(nn.Module):
+    def __init__(self, patch_size=3, sigma=1.0, bins=256):
+        super(FDHLoss, self).__init__()
+        self.patch_size = patch_size
+        self.sigma = sigma
+        self.bins = bins
+
+    def forward(self, input_image, output_image):
+        """
+        Compute FDH loss as the difference between the input and output images' FDH histograms.
+        
+        Args:
+        - input_image: Tensor of shape (B, C, H, W), input low-light image.
+        - output_image: Tensor of shape (B, C, H, W), enhanced image.
+        
+        Returns:
+        - fdh_loss: Scalar value representing the loss.
+        """
+        def compute_fdh(image):
+            b, c, h, w = image.shape
+            # Convert to grayscale
+            grayscale = torch.mean(image, dim=1, keepdim=True)  # Shape: (B, 1, H, W)
+
+            # Compute neighborhood similarity (μns)
+            unfolded = F.unfold(grayscale, kernel_size=self.patch_size, padding=1)  # Shape: (B, P, H*W)
+            center_pixel = grayscale.view(b, 1, h * w)
+            diff = torch.abs(center_pixel - unfolded)  # Absolute intensity differences
+            mu_ns = torch.clamp(1 - diff / self.sigma, min=0)  # Clamp negative values to 0
+
+            # Fuzzy similarity index (ϕ)
+            phi = torch.mean(mu_ns, dim=1)  # Mean over patch pixels, Shape: (B, H*W)
+            phi = phi.view(b, h, w)
+
+            # Fuzzy contrast factor (μCf)
+            mu_cf = 1 - phi
+
+            # Histogram of contrast factors
+            bins = torch.linspace(0, 1, steps=self.bins).to(image.device)
+            h_fd = torch.histc(mu_cf, bins=bins.numel(), min=0, max=1)  # Histogram
+            h_fd = h_fd / h_fd.sum()  # Normalize to probability distribution
+            return h_fd
+
+        # Compute FDH for input and output images
+        fdh_input = compute_fdh(input_image)
+        fdh_output = compute_fdh(output_image)
+
+        # Compute difference between histograms
+        fdh_loss = torch.mean((fdh_input - fdh_output) ** 2)  # Mean Squared Error (MSE)
+        return fdh_loss
