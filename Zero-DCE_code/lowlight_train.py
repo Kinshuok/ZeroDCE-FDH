@@ -46,6 +46,7 @@ def train(config):
     DCE_net.train()
 
     for epoch in range(config.num_epochs):
+        print(f"Epoch {epoch+1}/{config.num_epochs}")
         # Add tqdm for progress bar in each epoch
         with tqdm(total=len(train_loader), desc=f"Epoch {epoch+1}/{config.num_epochs}", unit="batch") as pbar:
             for iteration, img_lowlight in enumerate(train_loader):
