@@ -82,7 +82,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     # Input Parameters
-    parser.add_argument('--lowlight_images_path', type=str, default="data/train_data/")
+    parser.add_argument('--lowlight_images_path', type=str, default="/Users/kinshuokmunjal/Desktop/ZeroDCE-FDH/Zero-DCE_code/data/test_data/")
     parser.add_argument('--lr', type=float, default=0.0001)
     parser.add_argument('--weight_decay', type=float, default=0.0001)
     parser.add_argument('--grad_clip_norm', type=float, default=0.1)

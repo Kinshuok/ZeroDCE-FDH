@@ -43,7 +43,7 @@ def lowlight(image_path):
     print(f"Inference time: {end_time:.4f} seconds")
 
     # Save the enhanced image
-    result_path = image_path.replace('test_data', 'result')  # Update path for saving
+    result_path = image_path.replace('test_data', 'result2')  # Update path for saving
     if not os.path.exists(os.path.dirname(result_path)):
         os.makedirs(os.path.dirname(result_path))
     torchvision.utils.save_image(enhanced_image, result_path)

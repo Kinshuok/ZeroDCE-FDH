@@ -158,6 +158,14 @@ class perception_loss(nn.Module):
 
 class FDHLoss(nn.Module):
     def __init__(self, patch_size=3, sigma=1.0, bins=256):
+        """
+        Initialize the FDH Loss.
+
+        Args:
+        - patch_size (int): Size of the neighborhood patch.
+        - sigma (float): Standard deviation for fuzzy similarity computation.
+        - bins (int): Number of bins for the histogram.
+        """
         super(FDHLoss, self).__init__()
         self.patch_size = patch_size
         self.sigma = sigma
@@ -165,43 +173,49 @@ class FDHLoss(nn.Module):
 
     def forward(self, input_image, output_image):
         """
-        Compute FDH loss as the difference between the input and output images' FDH histograms.
-        
+        Compute FDH loss as the Mean Squared Error (MSE) between the input
+        and output images' FDH histograms.
+
         Args:
-        - input_image: Tensor of shape (B, C, H, W), input low-light image.
-        - output_image: Tensor of shape (B, C, H, W), enhanced image.
-        
+        - input_image: Tensor of shape (B, C, H, W), the low-light input image.
+        - output_image: Tensor of shape (B, C, H, W), the enhanced image.
+
         Returns:
-        - fdh_loss: Scalar value representing the loss.
+        - fdh_loss: Scalar value representing the MSE of FDH histograms.
         """
         def compute_fdh(image):
+            """
+            Compute the Fuzzy Dissimilarity Histogram for a given image.
+
+            Args:
+            - image: Tensor of shape (B, 1, H, W) (grayscale).
+
+            Returns:
+            - h_fd: Normalized FDH histogram as a probability distribution.
+            """
             b, c, h, w = image.shape
-            # Convert to grayscale
-            grayscale = torch.mean(image, dim=1, keepdim=True)  # Shape: (B, 1, H, W)
+            grayscale = torch.mean(image, dim=1, keepdim=True)  # Convert to grayscale
 
             # Compute neighborhood similarity (μns)
-            unfolded = F.unfold(grayscale, kernel_size=self.patch_size, padding=1)  # Shape: (B, P, H*W)
+            unfolded = F.unfold(grayscale, kernel_size=self.patch_size, padding=1)  # Extract patches
             center_pixel = grayscale.view(b, 1, h * w)
             diff = torch.abs(center_pixel - unfolded)  # Absolute intensity differences
-            mu_ns = torch.clamp(1 - diff / self.sigma, min=0)  # Clamp negative values to 0
+            mu_ns = torch.clamp(1 - diff / self.sigma, min=0)  # Fuzzy similarity
 
-            # Fuzzy similarity index (ϕ)
-            phi = torch.mean(mu_ns, dim=1)  # Mean over patch pixels, Shape: (B, H*W)
-            phi = phi.view(b, h, w)
-
-            # Fuzzy contrast factor (μCf)
+            # Compute fuzzy contrast factor (μCf)
+            phi = torch.mean(mu_ns, dim=1).view(b, h, w)  # Mean similarity index
             mu_cf = 1 - phi
 
-            # Histogram of contrast factors
+            # Create histogram of μCf
             bins = torch.linspace(0, 1, steps=self.bins).to(image.device)
-            h_fd = torch.histc(mu_cf, bins=bins.numel(), min=0, max=1)  # Histogram
+            h_fd = torch.histc(mu_cf, bins=bins.numel(), min=0, max=1)  # Create histogram
             h_fd = h_fd / h_fd.sum()  # Normalize to probability distribution
             return h_fd
 
-        # Compute FDH for input and output images
+        # Compute FDH histograms for input and output images
         fdh_input = compute_fdh(input_image)
         fdh_output = compute_fdh(output_image)
 
-        # Compute difference between histograms
-        fdh_loss = torch.mean((fdh_input - fdh_output) ** 2)  # Mean Squared Error (MSE)
+        # Compute MSE between the histograms
+        fdh_loss = torch.mean((fdh_input - fdh_output) ** 2)
         return fdh_loss
